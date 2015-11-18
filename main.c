@@ -159,19 +159,20 @@ int decrypts(const char *in, char *out)
 
 
 int main(int argc, const char * argv[]) {
-    int fd = file_open("/sdcard/test.txt");
+    int fd = file_open("/sdcard/demo.txt");
     const char* buffer = "2012年7月4日 - 使用OPENSSL库进行AES256位对称加解密的例子程序... 使用OPENSSL库进行AES256位对称加解密的例子程序资源积分:0分 下载次数:187 资源类型:代码类 资源...123";
     printf("%d\n", strlen(buffer));
-    const char* data = "Hello world12345123";
+    // const char* data = "Hello world12345123";
+    // int fd = open("/sdcard/demo.txt", O_RDONLY);
     off_t offset = 0;
     int i;
-    for(i = 0; i < 30; i++){
+    for(i = 0; i < 2; i++){
 
 
         file_pwrite(fd, buffer, strlen(buffer), offset);
         offset += strlen(buffer);
-//                file_pwrite(fd, data, strlen(data), offset);
-//                offset += strlen(data);
+               // file_pwrite(fd, data, strlen(data), offset);
+               // offset += strlen(data);
     }
 
     struct stat st;
@@ -185,7 +186,7 @@ int main(int argc, const char * argv[]) {
     int result = 0;
 
 //    int blockNum = st.st_size / BLOCK_SIZE;
-    int buffersize = BLOCK_SIZE * 64;
+    int buffersize = BLOCK_SIZE * 64 * 4 ;
     char outbuffer[buffersize];
     memset(outbuffer, 0, buffersize);
     int tmp = 0;
