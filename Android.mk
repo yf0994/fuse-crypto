@@ -18,6 +18,6 @@ LOCAL_SRC_FILES := main.c
 
 LOCAL_MODULE := demo
 
-LOCAL_LDLIBS := -llog -lcrypto
+LOCAL_LDLIBS := -llog -lcrypto -lcutils
 
 include $(BUILD_EXECUTABLE)

@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <openssl/aes.h>
+#include <cutils/hashmap.h>
 //#include <android/log.h>
 
 #define LOG_TAG "DEBUG"
@@ -33,7 +34,28 @@ unsigned char *iv = "01234567890123456";
 
 #define BLOCK_DATA_SIZE 17
 
-off_t dataoffset;
+
+
+Hashmap *map;
+
+Hashmap* name_with_offset;
+
+static int str_hash(void *key) {
+    return hashmapHash(key, strlen(key));
+}
+
+/** Test if two string keys are equal ignoring case */
+static bool str_icase_equals(void *keyA, void *keyB) {
+    return strcasecmp(keyA, keyB) == 0;
+}
+
+static int int_hash(void *key) {
+    return (int) (uintptr_t) key;
+}
+
+static int int_equals(void *keyA, void *keyB) {
+    return keyA == keyB;
+}
 
 int file_open(const char* filepath){
     int fd = open(filepath, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
@@ -48,35 +70,27 @@ ssize_t getsize(int fd){
     return st.st_size;
 }
 
-int validbuffer(char * buffer){
-    int i;
-    for(i = 0; i < BLOCK_SIZE; i++){
-        if(buffer[i] == '\0'){
-            return i;
-        }
-    }
-    return BLOCK_SIZE;
-}
-
-ssize_t file_pread(int fd, char* data, ssize_t length, off_t offset){
+ssize_t file_pread(int fd, char* data, ssize_t length, off_t offset){ 
+    char s[256], name[256];
+    snprintf(s, 255, "/proc/%d/fd/%d", getpid(), fd);
+    memset(name, 0, sizeof(name));
+    readlink(s, name, 255);
     int filesize = getsize(fd);
     if(offset > filesize){
+        hashmapRemove(name_with_offset, (void*)(uintptr_t)name);
         return 0;
     }
-   
-//    int partialOffset = offset % BLOCK_DATA_SIZE;
-//    off_t blockNum = offset / BLOCK_DATA_SIZE;
-//    if(partialOffset != 0){
-//        blockNum += 1;
-//    }
-//    offset = blockNum * BLOCK_DATA_SIZE;
     off_t dataBlockNum = length / BLOCK_SIZE;
     off_t dataPartialOffset = length % BLOCK_SIZE;
     if(dataPartialOffset != 0){
         dataBlockNum += 1;
     }
     int i;
-    offset = dataoffset;
+    
+    if(hashmapContainsKey(name_with_offset, (void*)(uintptr_t)name)){
+        void* value = hashmapGet(name_with_offset, (void*)(uintptr_t)name);
+        offset = (off_t)(uintptr_t)value;
+    }
     unsigned char buffer[BLOCK_SIZE];
     unsigned char plaintext[BLOCK_SIZE];
     int ret = 0;
@@ -84,12 +98,10 @@ ssize_t file_pread(int fd, char* data, ssize_t length, off_t offset){
     uint8_t size = 0;
     for(i = 0; i < dataBlockNum; i++){
         if((temp + (i + 1) * BLOCK_SIZE) <= filesize){
-            if(dataoffset < filesize){
+            if(offset < filesize){
                 pread(fd, &size, sizeof(uint8_t), offset);
                 pread(fd, buffer, BLOCK_SIZE, offset + 1);
-//                printf("%d\n", size);
                 offset += BLOCK_DATA_SIZE;
-                dataoffset += BLOCK_DATA_SIZE;
                 decrypts(buffer, plaintext);
                 memcpy(data + ret, plaintext, size);
                 ret += size;
@@ -98,7 +110,7 @@ ssize_t file_pread(int fd, char* data, ssize_t length, off_t offset){
             }
         }
     }
-    printf("%d\n", ret);
+    hashmapPut(name_with_offset, (void*)(uintptr_t)name, (void*)(uintptr_t)offset);
     return ret;
 }
 
@@ -150,6 +162,10 @@ ssize_t file_pwrite(int fd, const char* data, ssize_t length, off_t offset){
     return ret;
 }
 
+void file_close(int fd){
+    close(fd);
+}
+
 void handleErrors(void)
 {
     ERR_print_errors_fp(stderr);
@@ -175,106 +191,107 @@ int decrypts(const char *in, char *out)
 
 
 int main(int argc, const char * argv[]) {
-   
-    // ************************************************************************************************************************
-//          int fd = file_open("/Users/yinfeng/Desktop/demo.txt");
-//          const char* buffer = "2012年7月4日 - 使用OPENSSL库进行AES256位对称加解密的例子程序... 使用OPENSSL库进行AES256位对称加解密的例子程序资源积分:0分 下载次数:187 资源类型:代码类 资源...1";
-//          // printf("%d\n", strlen(buffer));
-// //        const char* buffer= "1234567890qwerty1234567890QWE";
-//     printf("%d\n", strlen(buffer));
-//     dataoffset = 0;
-//          int result = 0;
-//          off_t offset = 0;
-//          int i = 0;
-//          int ret = 0;
-//          for(i = 0; i < 19; i++){
-//              result = file_pwrite(fd, buffer, strlen(buffer), offset);
-//              offset += strlen(buffer);
-//          }
-//          struct stat st;
-//          fstat(fd, &st);
-//          printf("[%d]\n", st.st_size);
-//          unsigned char ciphertext[st.st_size];
-//          memset(ciphertext, 0, st.st_size);
-//          offset = 0;
-//          result = 0;
-//          ret = 0;
-//      //    int blockNum = st.st_size / BLOCK_SIZE;
-//          int buffersize = BLOCK_SIZE * 64 *4;
-//          char outbuffer[buffersize];
-//          memset(outbuffer, 0, buffersize);
-//          int tmp = 0;
-//          int fd1 = open("/Users/yinfeng/Desktop/demo1.txt", O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-//          while((result = file_pread(fd, outbuffer, buffersize, offset)) > 0){
-//              memcpy(ciphertext + tmp, outbuffer, result);
-//              tmp += result;
-//      //        printf("%d\n", tmp);
-//              offset += result;
-//              write(fd1, outbuffer, result);
-//              memset(outbuffer, 0, buffersize);
-//          }
-//           printf("%s\n", ciphertext);
-   
-   
-   
-   
-   
-   
-    /**************************************************************************************************************************************/
-   struct stat st;
-   int fd = open("/sdcard/1.jpg", O_RDONLY);
-   int fd1 = open("/sdcard/2.jpg", O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-   fstat(fd, &st);
-   int ret = 0;
-   printf("[%lld]\n", st.st_size);
-   int length = 4096;
-   char originbuffer[4096];
-   off_t offset = 0;
-   int result = 0;
-   while((ret = read(fd, originbuffer, length))){
-       result = file_pwrite(fd1, originbuffer, ret, offset);
-       offset += result;
-   }
-  
-  
-   printf("123\n" );
-  
-  
-   int i;
-   // for(i = 0; i < 2; i++){
-  
-  
-   //     file_pwrite(fd, buffer, strlen(buffer), offset);
-   //     offset += strlen(buffer);
-   //            // file_pwrite(fd, data, strlen(data), offset);
-   //            // offset += strlen(data);
-   // }
-  
-   memset(&st, 0, sizeof(struct stat));
-   if(fstat(fd1, &st) < 0){
-       printf("error\n");
-   }
-   printf("%d\n", st.st_size);
-   unsigned char ciphertext[st.st_size];
-   memset(ciphertext, 0, st.st_size);
-   int fd2 = open("/sdcard/3.jpg", O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-   char tmpbuffer[BLOCK_SIZE];
-   offset = 0;
-   result = 0;
-   ret = 0;
-   //    int blockNum = st.st_size / BLOCK_SIZE;
-   int buffersize = BLOCK_SIZE * 64 * 4 ;
-   char outbuffer[buffersize];
-   memset(outbuffer, 0, buffersize);
-   int tmp = 0;
-   while((result = file_pread(fd1, outbuffer, buffersize, offset)) > 0){
-       memcpy(ciphertext + tmp, outbuffer, result);
-       tmp += result;
-       //        printf("%d\n", tmp);
-       offset += buffersize;
-       write(fd2, outbuffer, result);
-       memset(outbuffer, 0, buffersize);
-   }
-   // printf("%s\n", ciphertext);
+/**********************************************************************************************************************/
+    // Hashmap* map = hashmapCreate(256, int_hash , int_equals);
+    // int fd1 = 3;
+    // off_t offset = 16;
+    // hashmapPut(map, (void*) (uintptr_t)fd1, (void*) (uintptr_t)offset);
+    // offset = 0;
+    // offset = (off_t)(uintptr_t)hashmapGet(map, (void*)(uintptr_t)fd1);
+    // printf("%d\n", offset);
+    // offset = 32;
+    // hashmapPut(map, (void*) (uintptr_t)fd1, (void*) (uintptr_t)offset);
+    // offset = 0;
+    // offset = (off_t)(uintptr_t)hashmapGet(map, (void*)(uintptr_t)fd1);
+    // printf("%d\n", offset);
+    // int fd2 = 4;
+    // void* result = hashmapGet(map, (void*)(uintptr_t)fd2);
+    // if(result == NULL){
+    //     printf("fd2 is null\n");
+    // }
+    // hashmapRemove(map, (void*)(uintptr_t)fd1);
+    // offset = (off_t)(uintptr_t)hashmapGet(map, (void*)(uintptr_t)fd1);
+    // printf("%d\n", offset);
+// ************************************************************************************************************************/
+    // map = hashmapCreate(256, int_hash, int_equals);
+    // int fd = file_open("/sdcard/demo.txt");
+    // name_with_offset = hashmapCreate(256, str_hash, str_icase_equals);
+    // const char* buffer = "2012年7月4日 - 使用OPENSSL库进行AES256位对称加解密的例子程序... 使用OPENSSL库进行AES256位对称加解密的例子程序资源积分:0分 下载次数:187 资源类型:代码类 资源...1";
+    // // dataoffset = 0;
+    // int result = 0;
+    // off_t offset = 0;
+    // int i = 0;
+    // int ret = 0;
+    // for(i = 0; i < 19; i++){
+    //     result = file_pwrite(fd, buffer, strlen(buffer), offset);
+    //     offset += strlen(buffer);
+    // }
+    // struct stat st;
+    // fstat(fd, &st);
+    // unsigned char ciphertext[st.st_size];
+    // memset(ciphertext, 0, st.st_size);
+    // offset = 0;
+    // result = 0;
+    // ret = 0;
+    // int buffersize = BLOCK_SIZE;
+    // char outbuffer[buffersize];
+    // memset(outbuffer, 0, buffersize);
+    // int tmp = 0;
+    // int fd1 = open("/sdcard/demo1.txt", O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+    // while((result = file_pread(fd, outbuffer, buffersize, offset)) > 0){
+    //     memcpy(ciphertext + tmp, outbuffer, result);
+    //     tmp += result;
+    //     offset += result;
+    //     write(fd1, outbuffer, result);
+    //     memset(outbuffer, 0, buffersize);
+    // }
+    // printf("%s\n", ciphertext);
+    // hashmapFree(name_with_offset);
+    // hashmapFree(map);
+
+/**************************************************************************************************************************************/
+    struct stat st;
+    map = hashmapCreate(256, int_hash, int_equals);
+    name_with_offset = hashmapCreate(256, str_hash, str_icase_equals);
+    int fd = open("/sdcard/0.png", O_RDONLY);
+    int fd1 = open("/sdcard/2.png", O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+    fstat(fd, &st);
+
+    int ret = 0;
+    int length = 4096;
+    char originbuffer[4096];
+    off_t offset = 0;
+    int result = 0;
+    while((ret = read(fd, originbuffer, length))){
+        result = file_pwrite(fd1, originbuffer, ret, offset);
+        offset += result;
+    }
+    int i;
+    memset(&st, 0, sizeof(struct stat));
+    if(fstat(fd1, &st) < 0){
+        printf("error\n");
+    }
+    unsigned char ciphertext[st.st_size];
+    memset(ciphertext, 0, st.st_size);
+    int fd2 = open("/sdcard/3.png", O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+    char tmpbuffer[BLOCK_SIZE];
+    offset = 0;
+    result = 0;
+    ret = 0;
+    int buffersize = BLOCK_SIZE * 64 * 4 ;
+    char outbuffer[buffersize];
+    memset(outbuffer, 0, buffersize);
+    int tmp = 0;
+    while((result = file_pread(fd1, outbuffer, buffersize, offset)) > 0){
+        memcpy(ciphertext + tmp, outbuffer, result);
+        tmp += result;
+        
+        offset += buffersize;
+        write(fd2, outbuffer, result);
+        memset(outbuffer, 0, buffersize);
+    }
+    file_close(fd);
+    hashmapFree(map);
+    hashmapFree(name_with_offset);
     return 0;
 }
